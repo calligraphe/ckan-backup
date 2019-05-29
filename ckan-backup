@@ -1,0 +1,80 @@
+#!/bin/bash
+
+# IMPORTANT: set your path where backup will be stored
+DIR="/root"
+
+# Create directories
+cd $DIR
+mkdir backup
+cd backup
+mkdir tmp db volume
+mkdir db/day db/week db/month
+mkdir volume/day volume/week volume/month
+
+# Set directory variables
+DIR="$DIR/backup"
+TMP="$DIR/tmp" # for avoiding several recreations of same backups (create once, copy to other folders, clean)
+
+DB_DAY="$DIR/db/day"
+DB_WEEK="$DIR/db/week"
+DB_MONTH="$DIR/db/month"
+
+VOL_DAY="$DIR/volume/day"
+VOL_WEEK="$DIR/volume/week"
+VOL_MONTH="$DIR/volume/month"
+
+# Set dates
+DATE=$(date +%Y-%m-%d) # to get the date
+week_day=`date +'%u'`  # to get the day of week 
+month_day=`date '+%d'` # to get the day of month
+
+# Delete files from $1 directory that are older than $2 days
+function update()
+{
+	find $1/* -mtime $2 -exec rm {} \;
+}
+
+
+# ******************************************************* Every day
+# Take each backup in separate name
+# Databases
+docker exec db /usr/bin/sudo -u ckan pg_dump --format=custom -d ckan > $TMP/$DATE.ckan.dump
+docker exec db /usr/bin/sudo -u ckan pg_dump --format=custom -d datastore > $TMP/$DATE.datastore.dump
+# Volumes
+tar -zcvpf $TMP/$DATE.tar.gz /var/lib/docker/volumes/
+
+# Copy to appropriate folders
+cp $TMP/*.dump $DB_DAY
+cp $TMP/*.gz $VOL_DAY
+
+# Update
+update $DB_DAY '+14'
+update $VOL_DAY '+14'
+
+# ******************************************************* Every monday
+if [ $week_day = 1 ] 
+then
+	# Copy to appropriate folders
+	cp $TMP/*.dump $DB_WEEK
+	cp $TMP/*.gz $VOL_WEEK
+	# Update
+	update $DB_WEEK '+27'
+	update $VOL_WEEK '+27'
+fi
+
+# ******************************************************* Every first day of month
+if [ $month_day == 01 ]
+then
+	# Copy to appropriate folders
+	cp $TMP/*.dump $DB_MONTH
+	cp $TMP/*.gz $VOL_MONTH
+	# Update
+	update $DB_MONTH '+365'
+	update $VOL_MONTH '+365'
+fi
+
+# Finally, delete tmp folder
+rm -rf $TMP
+
+
+
